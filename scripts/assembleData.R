@@ -10,7 +10,7 @@ terraOptions(progress = 1)
 
 #####
 # set AOI
-shp <- sf::st_read(dsn = "C:/Users/Crimmins/OneDrive - University of Arizona/RProjects/ClimateReports/Micro_Apps/Kaibab National Forest/Data/shapes/AdministrativeForest.gdb")
+shp <- sf::st_read(dsn = "./data/shapes/AdministrativeForest.gdb")
 shp<- sf::st_transform(shp, crs = sf::st_crs("+proj=longlat +datum=WGS84"))
 
 # subset to selected NF
@@ -23,7 +23,7 @@ aoi<-ext(shp)+1
 #####
 # process RPMS data
 
-rpmsDir<-"C:/Users/Crimmins/OneDrive - University of Arizona/RProjects/RPMSprocessing/swRPMS_data"
+rpmsDir<-"./data/swRPMS_data"
 
 # Load files into SpatRaster collection
 file_list <- list.files(path=rpmsDir, pattern=".tif", full.names=TRUE, recursive=FALSE)
@@ -40,11 +40,15 @@ rpmsStack <- rast(file_list[1:(length(file_list))])
 # crop to aoi
 rpmsStack <- crop(rpmsStack, aoi)
 
+# mask 2024 with NAs from previous years
+# Apply mask (NA values in rpms_1984 will be applied to other_layer)
+rpmsStack[[40]] <- mask(rpmsStack[[40]], rpmsStack[[39]])
+
 # set names on prod_stack layers
 names(rpmsStack) <- yrs[-29]
 
 # write data to file
-writeRaster(rpmsStack, filename = "KNF_RPMS_1984_2024.tif", overwrite=TRUE)
+writeRaster(rpmsStack, filename = "./data/processed/KNF_RPMS_1984_2024.tif", overwrite=TRUE)
 #####
 
 #####
@@ -83,15 +87,15 @@ layer_months <- format(as.Date(names(gridmet_pr$precipitation_amount),"pr_%Y-%m-
 monthly_totals <- terra::tapp(gridmet_pr$precipitation_amount, index = layer_months, fun = sum)
 
 # write data to file
-writeRaster(monthly_totals, filename = "./data/KNF_GridMet_monthly_pr_1984_2024.tif", overwrite=TRUE)
+writeRaster(monthly_totals, filename = "./data/processed/KNF_GridMet_monthly_pr_1984_2024.tif", overwrite=TRUE)
 
 #####
 
 #####
 # process to common resolution
 
-rpmsStack <- rast("./data/KNF_RPMS_1984_2024.tif")
-monthly_totals<-rast("./data/KNF_GridMet_monthly_pr_1984_2024.tif")
+rpmsStack <- rast("./data/processed/KNF_RPMS_1984_2024.tif")
+monthly_totals<-rast("./data/processed/KNF_GridMet_monthly_pr_1984_2024.tif")
 
 # Set number of threads (adjust based on your system's cores)
 terra::terraOptions()
@@ -101,8 +105,56 @@ resmpRPMS <- resample(rpmsStack,monthly_totals, method="bilinear")
 
 #names(resmpRPMS) <- names(rpmsStack)
 
-writeRaster(resmpRPMS, filename = "./data/4K_KNF_RPMS_1984_2024.tif", overwrite=TRUE)
+writeRaster(resmpRPMS, filename = "./data/processed/4K_KNF_RPMS_1984_2024.tif", overwrite=TRUE)
 #####
 
+##### get Landfire landcover data
+library(rlandfire)
 
+# get AOI using landfire function
+aoiLF <- getAOI(shp, extend = 1)
+aoiLF
+
+# set up query
+# products? https://lfps.usgs.gov/lfps/helpdocs/productstable.html
+products <- c("200BPS")
+path <- tempfile(fileext = ".zip")
+projection<-4326
+#resolution<-60
+
+resp <- landfireAPI(products = products,
+                    aoi = aoiLF,
+                    projection = projection, 
+                    #resolution = resolution,
+                    path = path,
+                    verbose = TRUE)
+
+lf_dir <- file.path(tempdir(), "lf")
+utils::unzip(path, exdir = lf_dir)
+# load as spatRast
+lf <- terra::rast(list.files(lf_dir, pattern = ".tif$", 
+                             full.names = TRUE, 
+                             recursive = TRUE)[1])
+# check by plotting
+plot(lf)
+activeCat(lf) <- 5 # set active layer to GROUPVEG
+plot(lf)
+plot(shp, add = TRUE)
+#write out to save
+writeRaster(lf, filename = "./data/processed/KNF_Landfire_200BPS.tif", overwrite=TRUE)
+
+# load to resample
+lf <- rast("./data/processed/KNF_Landfire_200BPS.tif")
+activeCat(lf) <- 5 # set to GROUP VEG
+monthly_totals<-rast("./data/processed/KNF_GridMet_monthly_pr_1984_2024.tif")
+
+# Set number of threads (adjust based on your system's cores)
+terra::terraOptions()
+terraOptions(memfrac = 0.8)
+
+# resample to gridmet
+resmpLF <- resample(lf,monthly_totals, method="near")
+
+writeRaster(resmpLF, filename = "./data/processed/4K_KNF_200BPS_GROUPVEG.tif", overwrite=TRUE)
+#####
 

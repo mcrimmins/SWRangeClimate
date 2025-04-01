@@ -1,7 +1,6 @@
 # randomForest analysis of RPMS-climate relationships
 # MAC 01/30/25
 
-
 library(terra)
 library(dplyr)
 library(tidyr)
@@ -10,8 +9,14 @@ library(ggplot2)
 library(Metrics)
 
 # Load raster layers
-prod_stack <- rast("./data/4K_KNF_RPMS_1984_2024.tif")
-precip_stack <- rast("./data/KNF_GridMet_monthly_pr_1984_2024.tif")
+prod_stack <- rast("./data/processed/4K_KNF_RPMS_1984_2024.tif")
+precip_stack <- rast("./data/processed/KNF_GridMet_monthly_pr_1984_2024.tif")
+
+# set new extent to all spatRast
+newExt<-ext(prod_stack)
+newExt<-ext(newExt[1],newExt[2],newExt[3],newExt[4]-1)
+prod_stack<-crop(prod_stack,newExt)
+precip_stack<-crop(precip_stack,newExt)
 
 # Convert Precipitation Data to Data Frame
 precip_df <- as.data.frame(precip_stack, xy = TRUE, na.rm = TRUE) %>%
