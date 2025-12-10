@@ -14,6 +14,8 @@ veg_prod <- rast("./data/processed/4K_KNF_RPMS_1984_2024.tif")  # Annual vegetat
 precip <- rast("./data/processed/KNF_GridMet_monthly_pr_1984_2024.tif")  # Monthly precipitation
 veg_type <- rast("./data/processed/4K_KNF_200BPS_GROUPVEG.tif")  # Vegetation type
 activeCat(veg_type)<-5
+veg_type_RAP <- rast("./data/processed/4K_KNF_2024_dominantRAPcover.tif")  # Vegetation type
+
 
 # set new extent to all spatRast
 newExt<-ext(veg_prod)
@@ -21,6 +23,7 @@ newExt<-ext(newExt[1],newExt[2],newExt[3],newExt[4]-1)
 veg_prod<-crop(veg_prod,newExt)
 precip<-crop(precip,newExt)
 veg_type<-crop(veg_type,newExt)
+veg_type_RAP<-crop(veg_type_RAP,newExt)
 
 # load boundary
 shp <- sf::st_read(dsn = "./data/shapes/AdministrativeForest.gdb")
@@ -46,12 +49,14 @@ plot(veg_prod[[39]], main="RPMS 4km 2023")
 plot(shp, add=TRUE, col=NA, border="red")
 
 # plot all veg prod
+names(veg_prod)<-paste0("X", names(veg_prod))
 levelplot(veg_prod, main="RPMS 4km 1984-2024")
 
 # plot time series hist
 bwplot(veg_prod, main="RPMS 4km 1984-2024")
 
 # percentile rank of veg_prod
+source("~/RProjects/SWRangeClimate/scripts/scratch/percentileRank.R")
 veg_percentile <- app(veg_prod, fun = percentile_fun)
 names(veg_percentile)<-names(veg_prod)
 
@@ -79,8 +84,10 @@ plot(shp, add=TRUE, col=NA, border="black")
 # with mask
 plot(mask(veg_type, veg_prod[[40]]))
 
-
-
-
-
-
+# plot of vegetation types using RAP
+plot(veg_type_RAP, main="RAP VegGroups -- 4km")
+# add shp with no fill
+plot(shp, add=TRUE, col=NA, border="red")
+# with mask
+plot(mask(veg_type_RAP, veg_prod[[40]]),main="RAP VegGroups with mask")
+plot(shp, add=TRUE, col=NA, border="red")
