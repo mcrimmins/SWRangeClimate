@@ -48,42 +48,41 @@ if (testing) {
 
 ###############################################################
 # OPTIONAL SENSOR-SHIFT CORRECTION + BREAKPOINT DIAGNOSTICS
-# -------------------------------------------------------------
-# This script allows:
-#   (A) OPTIONAL correction of known sensor/algorithm jumps
-#   (B) Diagnostic detection of structural breaks in vegetation production
-#
-# To ENABLE correction, set:
-#       apply_correction <- TRUE
-#
-# Otherwise, the breakpoint analysis is run on the raw vegetation raster.
+# Supports: # (1) auto_correction = TRUE → match early/late via mean differences 
+# (2) manual_factor = 0.87 → reduce late period by 13%
 ###############################################################
 
 library(terra)
 library(strucchange)
 
+veg_input <- veg_prod
+
+apply_correction <- TRUE # master switch
+auto_correction  <- TRUE # TRUE = use automatic shift; FALSE = use manual factor
+manual_factor    <- 0.87 # e.g., 0.87 for 13% test; 1.00 = no manual correction
+
 ###############################################################
-# A. OPTIONAL SENSOR-SHIFT CORRECTION
+# STEP 1 — Detect breakpoint BEFORE applying correction
 ###############################################################
 
-veg_input <- veg_prod  # keep a clean copy of the original
+years_vec <- as.numeric(names(veg_input))
+veg_mean_raw <- global(veg_input, fun="mean", na.rm=TRUE)[,1]
 
-# ============================================================
-# FLEXIBLE SENSOR-SHIFT CORRECTION BLOCK
-# Supports:
-#   (1) auto_correction = TRUE  → match early/late via mean differences
-#   (2) manual_factor   = 0.87  → reduce late period by 13%
-# ============================================================
+bp_model_raw <- breakpoints(veg_mean_raw ~ 1)
+break_index  <- bp_model_raw$breakpoints[1]
+break_year   <- years_vec[break_index]
 
-apply_correction <- TRUE          # master switch
-auto_correction  <- FALSE          # TRUE = use automatic shift; FALSE = use manual factor
-manual_factor    <- 0.87         # e.g., 0.87 for 13% test; 1.00 = no manual correction
+message("Detected breakpoint around year: ", break_year)
+
+###############################################################
+# STEP 2 — Apply correction (if enabled)
+###############################################################
 
 if (apply_correction) {
   
   message("Applying vegetation sensor-shift correction...")
   
-  years <- as.numeric(names(veg_input))
+  years <- years_vec
   early_period <- years <= break_year
   late_period  <- years >  break_year
   
@@ -98,7 +97,6 @@ if (apply_correction) {
     
     shift_amount <- early_mean - late_mean
     
-    # Apply pixel-wise shift to each late-period layer
     for (i in which(late_period)) {
       veg_corrected[[i]] <- veg_input[[i]] + shift_amount
     }
@@ -106,9 +104,9 @@ if (apply_correction) {
     message("Automatic correction applied.")
   }
   
-  if (!auto_correction && manual_factor != 1.00) {
+  if (!auto_correction && manual_factor != 1) {
     
-    message("Using MANUAL multiplicative correction. Factor = ", manual_factor)
+    message("Using MANUAL correction. Factor = ", manual_factor)
     
     for (i in which(late_period)) {
       veg_corrected[[i]] <- veg_input[[i]] * manual_factor
@@ -123,14 +121,12 @@ if (apply_correction) {
   
   message("No correction applied.")
   veg_used <- veg_input
-  
 }
 
 ###############################################################
-# B. BREAKPOINT DIAGNOSTICS (using corrected or raw data)
+# STEP 3 — DIAGNOSTICS (using corrected or raw data)
 ###############################################################
 
-# Extract annual mean values
 years <- as.numeric(names(veg_used))
 veg_mean <- global(veg_used, fun="mean", na.rm=TRUE)[,1]
 
@@ -139,23 +135,13 @@ ts_df <- data.frame(
   mean_prod = veg_mean
 )
 
-# -------------------------------------------------------------
-# 1. Fit breakpoints model
-# -------------------------------------------------------------
+early_mean_global <- mean(veg_mean[years <= break_year])
+late_mean_global  <- mean(veg_mean[years >  break_year])
+
 bp_model <- breakpoints(mean_prod ~ 1, data = ts_df)
-print(bp_model)
-
-# -------------------------------------------------------------
-# 2. Plot BIC and RSS diagnostics
-# -------------------------------------------------------------
-plot(bp_model,
-     main = "Breakpoint Diagnostics (RSS & BIC)\nRaw or Corrected Vegetation Time Series")
-
-# -------------------------------------------------------------
-# 3. Extract breakpoint years
-# -------------------------------------------------------------
 break_pos <- bp_model$breakpoints
 break_years <- years[break_pos]
+
 cat("Estimated Break Year(s):", break_years, "\n")
 
 # -------------------------------------------------------------

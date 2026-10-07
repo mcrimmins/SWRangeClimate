@@ -8,16 +8,16 @@ shp <- sf::st_read(dsn = "./data/shapes/AdministrativeForest.gdb")
 shp<- sf::st_transform(shp, crs = sf::st_crs("+proj=longlat +datum=WGS84"))
 
 # subset to selected NF
-shp<-subset(shp, shp$FORESTNAME=="Kaibab National Forest")
+#shp<-subset(shp, shp$FORESTNAME=="Kaibab National Forest")
 #shp<-subset(shp, shp$FORESTNAME=="Tonto National Forest")
-#shp<-subset(shp, shp$FORESTNAME=="Coronado National Forest")
+shp<-subset(shp, shp$FORESTNAME=="Coronado National Forest")
 
 # Load SpatRaster data -----
 #veg_prod <- rast("./data/processed/800m_KNF_RPMS_1984_2024.tif")  # Annual vegetation production
 #veg_prod <- rast("./data/processed/800m_KNF_RPMS_1984_2024_EVTmask.tif")  # Annual vegetation production with EVT mask
-veg_prod<- rast("./data/processed/KNF_RPMS_1984_2024_EVT_treeMask.tif")
+#veg_prod<- rast("./data/processed/KNF_RPMS_1984_2024_EVT_treeMask.tif")
 
-#veg_prod<-rast("./data/processed/TontoNF_RPMS_1984_2024_no_mask.tif")
+veg_prod<-rast("./data/processed/CoronadoNF_RPMS_1984_2024_no_mask.tif")
 
 
 ###############################################################
@@ -28,15 +28,25 @@ veg_input <- veg_prod  # keep a clean copy of the original
 rm(veg_prod)
 
 # ============================================================
-# FLEXIBLE SENSOR-SHIFT CORRECTION BLOCK
-# Supports:
-#   (1) auto_correction = TRUE  → match early/late via mean differences
-#   (2) manual_factor   = 0.87  → reduce late period by 13%
+# Detect breakpoint (required!)
 # ============================================================
 
-apply_correction <- FALSE          # master switch
-auto_correction  <- FALSE          # TRUE = use automatic shift; FALSE = use manual factor
-manual_factor    <- 0.87         # e.g., 0.87 for 13% test; 1.00 = no manual correction
+years_vec <- as.numeric(names(veg_input))
+veg_mean_ts <- global(veg_input, fun = "mean", na.rm = TRUE)[,1]
+
+bp_model <- breakpoints(veg_mean_ts ~ 1)
+bp_index <- bp_model$breakpoints[1]
+break_year <- years_vec[bp_index]
+
+message("Detected breakpoint around year: ", break_year)
+
+# ============================================================
+# FLEXIBLE SENSOR-SHIFT CORRECTION BLOCK
+# ============================================================
+
+apply_correction <- TRUE          # master switch
+auto_correction  <- TRUE          # TRUE = automatic shift; FALSE = manual factor
+manual_factor    <- 0.87          # e.g., reduce late period by 13%
 
 if (apply_correction) {
   
@@ -48,6 +58,9 @@ if (apply_correction) {
   
   veg_corrected <- veg_input
   
+  # -------------------------------
+  # Mode 1 — Automatic correction
+  # -------------------------------
   if (auto_correction) {
     
     message("Using AUTOMATIC correction based on early/late mean differences...")
@@ -57,14 +70,24 @@ if (apply_correction) {
     
     shift_amount <- early_mean - late_mean
     
-    # Apply pixel-wise shift to each late-period layer
     for (i in which(late_period)) {
       veg_corrected[[i]] <- veg_input[[i]] + shift_amount
     }
     
+    
+    early_mean_global <- global(early_mean, fun = "mean", na.rm = TRUE)[1,1]
+    late_mean_global  <- global(late_mean,  fun = "mean", na.rm = TRUE)[1,1]
+    
+    early_mean_global
+    late_mean_global
+    
+    
     message("Automatic correction applied.")
   }
   
+  # -------------------------------
+  # Mode 2 — Manual multiplicative test
+  # -------------------------------
   if (!auto_correction && manual_factor != 1.00) {
     
     message("Using MANUAL multiplicative correction. Factor = ", manual_factor)
@@ -82,7 +105,6 @@ if (apply_correction) {
   
   message("No correction applied.")
   veg_used <- veg_input
-  
 }
 
 ###############################################################
@@ -91,12 +113,19 @@ if (apply_correction) {
 
 # Extract annual mean values
 years <- as.numeric(names(veg_used))
-veg_mean <- global(veg_used, fun="mean", na.rm=TRUE)[,1]
+#veg_mean <- global(veg_used, fun="mean", na.rm=TRUE)[,1]
 
 ts_df <- data.frame(
   year = years,
-  mean_prod = veg_mean
+  mean_prod = veg_mean_ts
 )
+
+early_mean_global <- mean(veg_mean_ts[years <= break_year])
+late_mean_global  <- mean(veg_mean_ts[years > break_year])
+
+early_mean_global
+late_mean_global
+
 
 # -------------------------------------------------------------
 # 1. Fit breakpoints model

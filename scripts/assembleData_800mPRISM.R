@@ -18,13 +18,10 @@ shp <- sf::st_read(dsn = "./data/shapes/AdministrativeForest.gdb")
 shp<- sf::st_transform(shp, crs = sf::st_crs("+proj=longlat +datum=WGS84"))
 
 # subset to selected NF
-#shp<-subset(shp, shp$FORESTNAME=="Kaibab National Forest")
-#shp<-subset(shp, shp$FORESTNAME=="Tonto National Forest")
-shp<-subset(shp, shp$FORESTNAME=="Coronado National Forest")
+shp<-subset(shp, shp$FORESTNAME=="Kaibab National Forest")
 
 # get ext
-#aoi<-ext(shp)+1
-aoi<-ext(shp)
+aoi<-ext(shp)+1
 #####
 
 ##### 
@@ -77,12 +74,6 @@ rpmsStack <- rast(file_list[1:(length(file_list))])
 # crop to aoi
 rpmsStack <- crop(rpmsStack, aoi)
 
-# set names on prod_stack layers
-names(rpmsStack) <- yrs[-29]
-
-# save raw stack
-writeRaster(rpmsStack, filename = "./data/processed/CoronadoNF_RPMS_1984_2024_no_mask.tif", overwrite=TRUE)
-
 # mask 2024 with NAs from previous years
 # Apply mask (NA values in rpms_1984 will be applied to other_layer)
 #rpmsStack[[40]] <- mask(rpmsStack[[40]], rpmsStack[[39]])
@@ -90,37 +81,28 @@ writeRaster(rpmsStack, filename = "./data/processed/CoronadoNF_RPMS_1984_2024_no
 # set names on prod_stack layers
 #names(rpmsStack) <- yrs[-29]
 
-# load already processed rpmsStack
-rpmsStack <- rast("./data/processed/KNF_RPMS_1984_2024.tif")
-
-#####
 # apply mask of any NAs to all layers
 # Step 1: Identify NA locations in each layer
-#  na_mask <- app(rpmsStack, fun = function(x) any(is.na(x)))
-# Step 2: Convert logical mask to numeric (1 for valid, NA for missing)
-#  na_mask[na_mask == 1] <- NA
-#  na_mask[na_mask == 0] <- 1
-#####
-
-# alternative approach for single mask layer  
-# Step 1: Check for any NA in any layer (returns logical values)
   na_mask <- app(rpmsStack, fun = function(x) any(is.na(x)))
-# Step 2: Convert logical to numeric: TRUE->NA, FALSE->1
-  na_mask <- ifel(na_mask, NA, 1)
+# Step 2: Convert logical mask to numeric (1 for valid, NA for missing)
+  na_mask[na_mask == 1] <- NA
+  na_mask[na_mask == 0] <- 1
 # Step 3: Apply the NA mask to the original stack
-  rpmsStack <- mask(rpmsStack, na_mask)
+test <- mask(rpmsStack, na_mask)
+rpmsStack <- test
+rm(test)
 
 # apply EVT tree mask
 evtMask<-rast("./data/landfire/EVT/KNF_LF_EVT_treeMask_2024.tif")
-evtMask <- ifel(evtMask, NA, 1)
-evtMask <- resample(evtMask, rpmsStack[[1]], method="near")
-rpmsStack <- mask(rpmsStack, evtMask)
-  
+evtMask<-resample(evtMask,rpmsStack[[1]], method="bilinear")
+  evtMask[evtMask == 1] <- NA
+  evtMask[evtMask == 0] <- 1
+
 # set names on prod_stack layers
-#names(rpmsStack) <- yrs[-29]
+names(rpmsStack) <- yrs[-29]
 
 # write data to file
-writeRaster(rpmsStack, filename = "./data/processed/KNF_RPMS_1984_2024_EVT_treeMask.tif", overwrite=TRUE)
+writeRaster(rpmsStack, filename = "./data/processed/KNF_RPMS_1984_2024.tif", overwrite=TRUE)
 #####
 
 ##### GET PRISM 800m data ------
@@ -200,7 +182,7 @@ run_batch_prism(
 #####
 # process to common resolution
 
-rpmsStack <- rast("./data/processed/KNF_RPMS_1984_2024_EVT_treeMask.tif")
+rpmsStack <- rast("./data/processed/KNF_RPMS_1984_2024.tif")
 monthly_totals<-rast("./data/processed/KNF_PRISM_800m_monthly_pr_1984_2024.tif")
 
 # Set number of threads (adjust based on your system's cores)
@@ -211,7 +193,7 @@ resmpRPMS <- resample(rpmsStack,monthly_totals, method="bilinear")
 
 #names(resmpRPMS) <- names(rpmsStack)
 
-writeRaster(resmpRPMS, filename = "./data/processed/800m_KNF_RPMS_1984_2024_EVTmask.tif", overwrite=TRUE)
+writeRaster(resmpRPMS, filename = "./data/processed/800m_KNF_RPMS_1984_2024.tif", overwrite=TRUE)
 #####
 
 ##### get Landfire landcover data
